@@ -54,6 +54,7 @@ internal static partial class Tests
                 await Gui("artist tags", ArtistTagsGui);
                 await Gui("click while busy", ClickWhileBusyGui);
                 await Gui("real pointer clicks", RealClickGui);
+                await Gui("tooltips after switching appearance", TooltipThemeGui);
                 await Gui("zoom and window keys", ZoomGui);
                 return 0;
             }, CancellationToken.None).GetAwaiter().GetResult();
@@ -851,6 +852,46 @@ internal static partial class Tests
             Assert(previewClicks == 1 && tries == 1, "one real click previews and one applies in Organize (apply took " + tries + ")");
         }
         finally { Console.WriteLine(string.Join("\n", report)); window.Close(); }
+    }
+
+    // A tooltip's text must stay readable on its panel in both appearances, including one first opened before a switch.
+    private static async Task TooltipThemeGui()
+    {
+        bool original = Appearance.IsDark;
+        var first = new Border { Width = 200, Height = 40, Background = Brushes.Transparent }.Tip("Line one\nLine two");
+        var second = new Border { Width = 200, Height = 40, Background = Brushes.Transparent }.Tip("Another tip");
+        var panel = new StackPanel { Children = { first, second } };
+        var window = Host(panel);
+        var report = new List<string>();
+        try
+        {
+            async Task<double> Measure(Control owner, string label)
+            {
+                ToolTip.SetIsOpen(owner, true); await Settle(150);
+                var tip = window.GetVisualDescendants().OfType<ToolTip>().FirstOrDefault()
+                    ?? typeof(ToolTip).GetField("ToolTipProperty", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?.GetValue(null) is AvaloniaProperty property ? owner.GetValue(property) as ToolTip : null;
+                var text = tip?.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault();
+                var presenter = tip?.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>().FirstOrDefault();
+                var border = tip?.GetVisualDescendants().OfType<Border>().FirstOrDefault();
+                Color Of(IBrush brush) => (brush as ISolidColorBrush)?.Color ?? Colors.Transparent;
+                Color ink = Of(text?.Foreground), back = Of(border?.Background ?? tip?.Background);
+                double Lum(Color c) { double F(byte v) { double x = v / 255.0; return x <= 0.03928 ? x / 12.92 : Math.Pow((x + 0.055) / 1.055, 2.4); } return 0.2126 * F(c.R) + 0.7152 * F(c.G) + 0.0722 * F(c.B); }
+                double a = Lum(ink), b = Lum(back), contrast = (Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05);
+                report.Add(label + ": app " + Application.Current.ActualThemeVariant + ", tip " + tip?.ActualThemeVariant + ", tip fg " + Of(tip?.Foreground) + ", presenter fg " + Of(presenter?.Foreground) +
+                    ", text fg " + ink + ", panel " + back + ", contrast " + contrast.ToString("0.0"));
+                ToolTip.SetIsOpen(owner, false); await Settle(100);
+                return contrast;
+            }
+            Appearance.SetDark(true, persist: false); await Settle(100);
+            double darkFirst = await Measure(first, "dark, first open");
+            Appearance.SetDark(false, persist: false); await Settle(100);
+            double lightReused = await Measure(first, "light, reopened");
+            double lightFresh = await Measure(second, "light, first open");
+            Appearance.SetDark(true, persist: false); await Settle(100);
+            double darkAgain = await Measure(second, "dark again, reopened");
+            Assert(darkFirst >= 4.5 && lightReused >= 4.5 && lightFresh >= 4.5 && darkAgain >= 4.5, "tooltip text stays readable after switching appearance\n" + string.Join("\n", report));
+        }
+        finally { Console.WriteLine(string.Join("\n", report)); Appearance.SetDark(original, persist: false); window.Close(); }
     }
 
     // Pages are tested on their own in a plain window.
