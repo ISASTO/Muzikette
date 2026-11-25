@@ -155,7 +155,9 @@ namespace AlbumArtTool
                 string downloader = YtDlp.Find();
                 string tag = YtDlpSetup.InstalledTag;
                 downloaderValue.Text = downloader == null ? "Not set up · downloaded the first time you replace songs" : "Ready" + (tag.Length > 0 ? " · version " + tag : "");
-                downloaderValue.Tip(downloader ?? "yt-dlp downloads songs from YouTube Music. It is set up automatically when you first use it.");
+                bool managed = downloader != null && YtDlpSetup.Installed && string.Equals(Path.GetDirectoryName(downloader), Path.GetFullPath(YtDlp.Cache), StringComparison.Ordinal);
+                downloaderValue.Tip(downloader == null ? "yt-dlp downloads songs from YouTube Music. It is set up automatically when you first use it, then kept up to date." :
+                    downloader + (managed ? "\nKept up to date: each time Muzikette opens, it quietly installs a newer yt-dlp if there is one." : "\nYour own copy of yt-dlp. Muzikette uses it as it is and does not update it."));
                 downloadDownloader.SetText(downloader == null ? "Download" : "Update");
             }
             string cookies = YtDlp.Cookies;
@@ -257,6 +259,7 @@ namespace AlbumArtTool
                 string current = YtDlp.Find();
                 bool deno = current == null || YtDlp.FindDeno(current) == null;
                 var progress = new Progress<int>(n => { if (IsWorking) downloaderValue.Text = "Downloading yt-dlp" + (deno ? " and Deno" : "") + " · " + n + "%"; });
+                await YtDlpSetup.Updating;
                 using (var setup = new YtDlpSetup()) await Task.Run(() => setup.InstallAsync(deno, progress, token));
                 message.Text = "yt-dlp is ready.";
             }

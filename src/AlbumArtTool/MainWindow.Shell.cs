@@ -281,7 +281,11 @@ namespace AlbumArtTool
         {
             if (addMusicPage != null) return addMusicPage;
             var music = YouTubeMusicForTest ?? (addMusicService ??= new Online.YouTubeMusic());
-            var download = DownloadForTest ?? ((url, folder, token, progress) => Management.YtDlp.Download(Management.YtDlp.Find(), Management.Encoder.Find(), url, folder, token, progress));
+            var download = DownloadForTest ?? ((url, folder, token, progress) =>
+            {
+                Management.YtDlpSetup.Updating.Wait(token);  // a quiet yt-dlp update finishes before it runs
+                return Management.YtDlp.Download(Management.YtDlp.Find(), Management.Encoder.Find(), url, folder, token, progress);
+            });
             AddMusicPage.DownloadsInjected = DownloadForTest != null;
             var queue = new Management.DownloadQueue(() => Management.AddMusic.Folder, Management.Encoder.Find, download, music.ThumbnailAsync);
             addMusicPage = new AddMusicPage(music, queue, () => Root, () => !busy && !queueRunning && !maintenanceRunning && (organizePage == null || !organizePage.IsWorking),
