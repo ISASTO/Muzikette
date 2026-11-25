@@ -143,9 +143,9 @@ namespace AlbumArtTool
         {
             if (statusBar == null) return;
             if (DateTime.UtcNow < zoomShownUntil) { display.SetActivity("Zoom", Zoom.Percent); return; }
-            bool running = busy || queueRunning;
-            bool show = running || current == Page.Albums || current == Page.Artists || current == Page.Activity;
-            string legend = busy ? (writing ? "Writing" : "Scanning") : queueRunning ? "Saving covers" : "Status";
+            bool running = busy || queueRunning, done = !running && DateTime.UtcNow < doneUntil;
+            bool show = running || done || current == Page.Albums || current == Page.Artists || current == Page.Activity;
+            string legend = busy ? (writing ? "Writing" : "Scanning") : queueRunning ? "Saving covers" : done ? "Done" : "Status";
             display.SetActivity(show ? legend : "", show ? status.Text : "");
         }
 
@@ -172,7 +172,7 @@ namespace AlbumArtTool
                     pageSubtitle.Text = organizePage != null && organizePage.WorksOnNewMusic
                         ? "Tidy up New music before it joins your library, then go back to Add music and add it."
                         : "Choose what to change, review every change, then apply. Originals are backed up and can be restored.";
-                    display.SetReadouts(("Mode", "Organize"), ("Folder", organizePage != null && organizePage.WorksOnNewMusic ? "New" : "Library"), ("Step", (organizePage?.CurrentStep ?? 1) + "/2")); break;
+                    display.SetReadouts(("Mode", "Organize"), ("Folder", organizePage != null && organizePage.WorksOnNewMusic ? "New" : "Library"), ("Step", organizePage?.Finished == true ? "Done" : (organizePage?.CurrentStep ?? 1) + "/2")); break;
                 case Page.AddMusic:
                     pageTitle.Text = "Add music"; pageSubtitle.Text = "Search YouTube Music and add albums or songs. They download as MP3 320 to New music, ready to tidy and add to your library.";
                     display.SetReadouts(("Mode", "Add music"), ("Waiting", (addMusicPage?.Queue.Waiting ?? 0).ToString())); break;
@@ -233,6 +233,7 @@ namespace AlbumArtTool
                     busy ? (writing ? "the album update" : "the library scan") : queueRunning ? "the album covers being saved" : maintenanceRunning ? "another library task" :
                     healthPage?.IsScanning == true ? "the duplicate scan" : !library && addMusicPage?.Queue.IsRunning == true ? "the downloads" : null;
                 organizePage.SwitchFolder = f => ShowOrganize(f);
+                organizePage.FinishedChanged = () => Guard(UpdateHeader);
                 organizePage.RenameArtists = f => _ = ShowRenameArtistAsync(f);
                 AddPage(organizePage);
             }

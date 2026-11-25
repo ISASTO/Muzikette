@@ -395,6 +395,12 @@ namespace AlbumArtTool
             wash.Show(album?.Key, album?.Thumbnail);
             coverCaption.Text = album?.Thumbnail != null ? (album.PreviewTrack != null ? "Current cover" : "Current folder image") : album != null ? "Drop an image here" : "";
             coverage.Set(album == null ? null : album.Coverage, album == null ? null : album.MissingCount > 0 ? "Warning" : "Positive");
+            // An album the queue just updated says so, in green, until the next scan.
+            if (album != null && applied.TryGetValue(album.Key, out var result) && !result.Artist)
+            {
+                coverage.Set(result.Message, "Positive");
+                if ((DateTime.UtcNow - result.At).TotalMilliseconds < ConfirmMs) { coverage.Opacity = 0; Motion.Fade(coverage, 1, 320); }
+            }
             discard.IsVisible = false; openFolder.IsVisible = selectedPath.IsVisible = album != null;
             SetPreview(album?.Thumbnail);
             if (album?.Thumbnail != null) _ = LoadPreviewAsync(album, version);
@@ -492,9 +498,12 @@ namespace AlbumArtTool
             var album = albums.SelectedAlbum;
             int count = album == null ? 0 : onlyMissing.On() ? album.MissingCount : album.Tracks.Count;
             bool queued = album != null && queuedAlbums.Contains(album.Key);
-            apply.Content = queued ? "Cover queued" : count > 0 ? "Apply cover to " + count + (count == 1 ? " track" : " tracks") : "Apply cover";
+            bool working = queued && currentJob != null && currentJob.Album.Key == album.Key && currentJob.Artist == null;
+            bool done = !queued && pending == null && JustApplied(album, false);
+            apply.Content = working ? "Applying…" : queued ? "Cover queued" : done ? "Cover applied ✓" : count > 0 ? "Apply cover to " + count + (count == 1 ? " track" : " tracks") : "Apply cover";
+            apply.Classes.Set("done", done);
             bool hasImage = pending != null || album?.PreviewTrack != null || album?.FolderCovers.Count > 0;
-            apply.IsEnabled = !busy && !maintenanceRunning && !queued && hasImage && album != null && (count > 0 || (folderCover.IsEnabled && folderCover.On()));
+            apply.IsEnabled = !busy && !maintenanceRunning && !queued && !done && hasImage && album != null && (count > 0 || (folderCover.IsEnabled && folderCover.On()));
             apply.Tip(queued ? "This album is already in the queue. You can work on another album." :
                 pending != null ? "Add the chosen cover to the work queue." : "Apply the displayed cover using the full-size image already in your album.");
         }
@@ -547,7 +556,7 @@ namespace AlbumArtTool
             string root = Root;
             cancellation?.Dispose(); cancellation = new CancellationTokenSource();
             var token = cancellation.Token;
-            issues.Clear(); SetBusy(true); status.Text = "Scanning music folders…";
+            issues.Clear(); applied.Clear(); SetBusy(true); status.Text = "Scanning music folders…";
             var reporter = Reporter();
             try
             {
@@ -562,9 +571,12 @@ namespace AlbumArtTool
             finally { SetBusy(false); ShowSelection(); FinishFirstRun(); }
         }
 
+        internal string LastApply;
+
         internal Task ApplyAsync()
         {
             var album = albums.SelectedAlbum;
+            LastApply = busy ? "busy" : maintenanceRunning ? "maintenance" : album == null ? "no album" : queuedAlbums.Contains(album.Key) ? "already queued " + album.Title : "start " + album.Title + (pending != null ? " (pending image)" : "");
             if (busy || maintenanceRunning || album == null || queuedAlbums.Contains(album.Key)) return Task.CompletedTask;
             try
             {
