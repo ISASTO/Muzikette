@@ -484,6 +484,9 @@ namespace AlbumArtTool
             UpdateApplyButton();
         }
 
+        /// <summary>Why a cover could not start right now, or null (tests use it to explain a dropped click).</summary>
+        internal string ApplyBlock => busy ? (writing ? "writing" : "busy") : maintenanceRunning ? "maintenance" : queueRunning ? "queue running" : null;
+
         private void UpdateApplyButton()
         {
             var album = albums.SelectedAlbum;
