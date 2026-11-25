@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AlbumArtTool;
@@ -333,8 +332,8 @@ internal static partial class Tests
     {
         string cache = YtDlp.Cache, program = Path.Combine(cache, YtDlp.ExecutableName);
         int requests = 0;
-        string Release(string tag, string body) => "{\"tag_name\":\"" + tag + "\",\"assets\":[{\"name\":\"" + YtDlpSetup.YtDlpAsset + "\",\"size\":" + Encoding.UTF8.GetByteCount(body) +
-            ",\"digest\":\"sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(body))).ToLowerInvariant() +
+        string Release(string tag, string body) => "{\"tag_name\":\"" + tag + "\",\"assets\":[{\"name\":\"" + YtDlpSetup.YtDlpAsset + "\",\"size\":" + System.Text.Encoding.UTF8.GetByteCount(body) +
+            ",\"digest\":\"sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body))).ToLowerInvariant() +
             "\",\"browser_download_url\":\"https://github.com/yt-dlp/yt-dlp/releases/download/" + tag + "/" + YtDlpSetup.YtDlpAsset + "\"}]}";
         HttpMessageHandler GitHub(string tag, string body = "", HttpStatusCode status = HttpStatusCode.OK, bool offline = false) => new FakeHandler(request =>
         {
