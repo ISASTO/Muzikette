@@ -45,6 +45,8 @@ namespace AlbumArtTool
         private readonly Action openSettings;
         private readonly ListBox files = new ListBox { Classes = { "grid" } };
         private readonly EmptyState hint = new EmptyState("Organize preview", withAction: false);
+        // After Apply: what was done, in place of the list, with a way to undo it.
+        private readonly EmptyState done = new EmptyState("Organize result");
         private readonly Control optionsPanel;
         private readonly Control chooseView, reviewView;
         private readonly Button chooseStep = Step(1, "Choose changes"), reviewStep = Step(2, "Review & apply"), back = Kit.IconButton(Icons.Back, "Back to options", "ghost");
@@ -140,7 +142,9 @@ namespace AlbumArtTool
             headerBar.Brush(Border.BorderBrushProperty, "Border"); headerBar.Brush(Border.BackgroundProperty, "InsetHeader");
             hint.Show(Icons.Organize, "Nothing to review yet", "Choose a preset or the options you want in step 1, then click Preview changes. Every change is listed here before anything happens.");
             hint.Margin = new Thickness(24);
-            var listHost = new Panel(); listHost.Children.Add(files); listHost.Children.Add(hint);
+            done.Margin = new Thickness(24); done.IsVisible = false; done.MaxWidth = 460;
+            done.Action.Tip("List what this run changed so you can undo all of it or only some files. Nothing is restored until you confirm.");
+            var listHost = new Panel(); listHost.Children.Add(files); listHost.Children.Add(hint); listHost.Children.Add(done);
             var table = Kit.Inset(Kit.Grid("*", "Auto,*").Add(headerBar.Cell(0, 0), listHost.Cell(1, 0))); table.Padding = new Thickness(0);
             reviewView = table;
             progress.Named("Library management progress"); progress.IsVisible = false;
@@ -478,7 +482,7 @@ namespace AlbumArtTool
             encoderState.Text = encoder == null ? "Converting audio needs FFmpeg, a free helper program. Everything else works without it." : "FFmpeg is ready for converting audio.";
             setupEncoder.IsVisible = encoder == null && openSettings != null;
         }
-        private void InvalidatePlan() { if (IsWorking) return; plan = null; undoJournal = null; SetRows(new List<FileRow>()); UpdateApply(); if (chooseView != null) ShowStep(CurrentStep); }
+        private void InvalidatePlan() { if (IsWorking) return; done.IsVisible = false; plan = null; undoJournal = null; SetRows(new List<FileRow>()); UpdateApply(); if (chooseView != null) ShowStep(CurrentStep); }
 
         private void SetRows(List<FileRow> next)
         {
@@ -486,7 +490,7 @@ namespace AlbumArtTool
             mergeGroups = rows.Where(r => r.Tag is LibraryAction a && !string.IsNullOrEmpty(a.MergeGroup)).GroupBy(r => ((LibraryAction)r.Tag).MergeGroup).ToDictionary(g => g.Key, g => g.ToList());
             foreach (var row in rows) row.Toggle = OnToggle;
             files.ItemsSource = rows;
-            hint.IsVisible = rows.Count == 0 && !IsWorking;
+            hint.IsVisible = rows.Count == 0 && !IsWorking && !done.IsVisible;
         }
 
         // Rows stay readable and scrollable while work runs, but selections are locked.
@@ -516,7 +520,8 @@ namespace AlbumArtTool
             stop.IsEnabled = value; stop.IsVisible = value; progress.IsVisible = value; UpdateApply(); UpdatePresetState();
             back.IsEnabled = chooseStep.IsEnabled = !value;
             if (chooseView != null) ShowStep(CurrentStep);
-            hint.IsVisible = rows.Count == 0 && !value;
+            if (value) done.IsVisible = false;
+            hint.IsVisible = rows.Count == 0 && !value && !done.IsVisible;
         }
 
         private void UpdateApply()
@@ -616,39 +621,70 @@ namespace AlbumArtTool
             source?.Dispose(); source = new CancellationTokenSource(); var token = source.Token;
             SetWorking(true); exclusive(true); var reporter = Reporter();
             bool wrote = false;
+            string heading = null, detail = null; bool undoing = undoJournal != null, good = false;
             try
             {
                 if (undoJournal != null)
                 {
                     var journal = undoJournal; int before = journal.Issues.Count;
                     int restored = await Task.Run(() => LibraryRunner.Undo(journal, token, reporter, selectedUndo)); wrote = restored > 0;
-                    state.Text = restored + " changes restored · " + (journal.Issues.Count - before) + " issues. See the backup journal for details.";
+                    int problems = journal.Issues.Count - before;
+                    state.Text = restored + " changes restored · " + problems + " issues. See the backup journal for details.";
+                    heading = Count(restored, "change") + " undone"; good = problems == 0;
+                    detail = problems == 0 ? "Your files are back as they were before that run." : problems + (problems == 1 ? " file" : " files") + " could not be restored. The backup journal lists them.";
                 }
                 else
                 {
                     var current = plan;
                     var result = await Task.Run(() => LibraryRunner.Run(current, token, reporter));
                     wrote = result.Entries.Any(e => e.State == "Committed" || e.State == "TargetCreated");
-                    state.Text = (result.Stopped ? "Stopped safely. " : "Finished. ") + result.Entries.Count(e => e.State == "Committed") + " changes completed · " + result.Issues.Count + " issues. Backups and Undo journal: " + result.Directory;
+                    int completed = result.Entries.Count(e => e.State == "Committed");
+                    state.Text = (result.Stopped ? "Stopped safely. " : "Finished. ") + completed + " changes completed · " + result.Issues.Count + " issues. Backups and Undo journal: " + result.Directory;
+                    good = !result.Stopped && result.Issues.Count == 0;
+                    heading = result.Stopped ? "Stopped after " + Count(completed, "change") : Count(completed, "change") + " applied";
+                    detail = (result.Issues.Count > 0 ? result.Issues.Count + (result.Issues.Count == 1 ? " file needs" : " files need") + " attention; the backup journal lists them. " : "") +
+                        "The originals are in the backup folder, and Undo puts everything back.";
                 }
             }
-            catch (OperationCanceledException) { state.Text = "Stopped. Completed changes remain recorded in the backup journal."; wrote = true; }
-            catch (Exception e) { state.Text = "Task could not finish: " + e.Message + " Completed changes can be reviewed in the backup journal."; wrote = true; }
+            catch (OperationCanceledException) { state.Text = "Stopped. Completed changes remain recorded in the backup journal."; wrote = true; heading = "Stopped"; detail = "Changes made before you stopped are in the backup journal and can be undone."; }
+            catch (Exception e) { state.Text = "Task could not finish: " + e.Message + " Completed changes can be reviewed in the backup journal."; wrote = true; heading = "Could not finish"; detail = e.Message; }
             finally
             {
                 bool renamed = plan != null && renameFrom != null;
                 plan = null; undoJournal = null; exclusive(false); SetWorking(false); apply.IsEnabled = false;
                 if (renamed) SetRename(null, null, true);
+                ShowResult(heading, detail, good, offerUndo: !undoing && wrote);
                 if (wrote) await refreshLibrary(root);
             }
         }
+
+        private static string Count(int n, string noun) => n + " " + noun + (n == 1 ? "" : "s");
+
+        /// <summary>Whether the review list shows the result of the last Apply or Undo.</summary>
+        internal bool Finished => done.IsVisible;
+        internal string ResultTitle => done.IsVisible ? done.Title : null;
+
+        // The list makes way for the result: a green tick when everything went through, an orange one otherwise.
+        private void ShowResult(string heading, string detail, bool good, bool offerUndo)
+        {
+            if (heading == null) return;
+            done.Show(good ? Icons.Check : Icons.Warning, heading, detail, offerUndo ? "Review undo" : null, offerUndo ? PreviewUndo : (Action)null);
+            done.Tone(good ? "LedGreen" : "LedOrange");
+            done.IsVisible = true; hint.IsVisible = false;
+            ShowStep(2);
+            if (Motion.Allowed) { done.Opacity = 0; Motion.Fade(done, 1, 260); }
+            FinishedChanged?.Invoke();
+        }
+
+        /// <summary>Raised when the result of an Apply is shown (the main window updates its display).</summary>
+        internal Action FinishedChanged;
 
         /// <summary>Lists what the last library run changed, ready to restore (also opened from Activity).</summary>
         internal void PreviewUndo()
         {
             try
             {
-                undoJournal = LibraryJournal.Last(); plan = null; SetRows(new List<FileRow>());
+                done.IsVisible = false; undoJournal = LibraryJournal.Last(); plan = null; SetRows(new List<FileRow>());
                 if (undoJournal == null) { state.Text = "There is no saved library run to undo on this " + Platform.Computer + "."; return; }
                 var next = new List<FileRow>();
                 foreach (var entry in undoJournal.Entries.Where(e => e.State == "Committed" || e.State == "Prepared" || e.State == "TargetCreated"))

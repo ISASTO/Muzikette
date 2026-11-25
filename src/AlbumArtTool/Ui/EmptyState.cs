@@ -31,6 +31,12 @@ namespace AlbumArtTool.Ui
             if (withAction) Children.Add(action);
         }
 
+        /// <summary>Colors the icon (a green tick for a result) instead of the usual faint grey.</summary>
+        internal void Tone(string brush)
+        {
+            icon.Brush(PathIcon.ForegroundProperty, brush ?? "Muted"); icon.Opacity = brush == null ? 0.7 : 1;
+        }
+
         internal string Title => title.Text;
         internal string Message => message.Text;
         internal Button Action => action;
