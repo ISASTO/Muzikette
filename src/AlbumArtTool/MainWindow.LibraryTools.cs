@@ -211,8 +211,8 @@ namespace AlbumArtTool
             applyArtist.IsEnabled = !busy && !maintenanceRunning && !queued && !done && count > 0;
             applyArtist.Content = working ? "Applying…" : queued ? "Album queued" : done ? "Artists set ✓" : count > 0 ? "Set artists on " + count + (count == 1 ? " track" : " tracks") : "Set track artists";
             applyArtist.Classes.Set("done", done);
-            bool justDone = album != null && applied.TryGetValue(album.Key, out var result) && result.Artist && count == 0;
-            artistSummary.Text = album == null ? "Select an album to review its track artists." : justDone ? result.Message + ". Every track now uses this artist." : !valid ? "No single main artist was found. Enter the name to use." :
+            string justDone = album != null && count == 0 && applied.TryGetValue(album.Key, out var result) && result.Artist ? result.Message : null;
+            artistSummary.Text = album == null ? "Select an album to review its track artists." : justDone != null ? justDone + ". Every track now uses this artist." : !valid ? "No single main artist was found. Enter the name to use." :
                 count == 0 ? "Every track already uses this artist. No cleanup needed." : count + " of " + album.Tracks.Count + " tracks will change to " + name;
             artistSummary.Tip(artistSummary.Text);
             foreach (var row in artistRows)
