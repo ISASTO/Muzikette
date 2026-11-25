@@ -630,7 +630,13 @@
     <Style Selector="CheckBox:disabled /template/ ContentPresenter#ContentPresenter">
       <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
     </Style>
+    <!-- Tooltips open beside the control, never over it: one that opens under the pointer swallows the next click. -->
+    <Style Selector=":is(Button), ComboBox, Slider, TextBox">
+      <Setter Property="ToolTip.Placement" Value="Bottom"/>
+      <Setter Property="ToolTip.VerticalOffset" Value="6"/>
+    </Style>
     <Style Selector="ToolTip">
+      <Setter Property="IsHitTestVisible" Value="False"/>
       <Setter Property="Background" Value="{DynamicResource Tooltip}"/>
       <Setter Property="Foreground" Value="{DynamicResource TooltipInk}"/>
       <Setter Property="BorderBrush" Value="#3A3A38"/>

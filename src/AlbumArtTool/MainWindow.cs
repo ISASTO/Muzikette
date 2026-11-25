@@ -342,10 +342,13 @@ namespace AlbumArtTool
             string previousKey = albums.SelectedAlbum?.Key;
             byte[] previousImage = preserveStaged ? pending : null;
             key = key ?? albums.SelectedAlbum?.Key;
+            // After a queued job, the album being looked at stays in the list even when it no longer matches the tab
+            // (a cover just applied in Missing art), so the selection does not jump and its confirmation stays in view.
+            string keep = preserveStaged ? previousKey : null;
             string query = (search.Text ?? "").Trim();
             var culture = System.Globalization.CultureInfo.CurrentCulture.CompareInfo;
-            var visible = library.Albums.Where(a => showingArtists || view == View.All || (view == View.Missing ? a.MissingCount > 0 : a.HasAnyCover))
-                .Where(a => albumFilter.SelectedIndex != 1 || a.ArtistChangeCount > 0)
+            var visible = library.Albums.Where(a => a.Key == keep || showingArtists || view == View.All || (view == View.Missing ? a.MissingCount > 0 : a.HasAnyCover))
+                .Where(a => a.Key == keep || albumFilter.SelectedIndex != 1 || a.ArtistChangeCount > 0)
                 .Where(a => query.Length == 0 || culture.IndexOf(a.Title + " " + a.Artist + " " + a.Folder, query, System.Globalization.CompareOptions.IgnoreCase) >= 0).ToList();
             var comparer = StringComparer.CurrentCultureIgnoreCase;
             visible = (albumSort.SelectedIndex == 2 ? visible.OrderByDescending(a => a.ArtistChangeCount).ThenBy(a => a.Artist, comparer).ThenBy(a => a.Title, comparer) :

@@ -791,9 +791,16 @@ internal static partial class Tests
             await window.ScanAsync(); await Settle(200);
             var list = window.Albums;
             var apply = ButtonStarting(window, "Apply cover");
+            // A tooltip opened by hovering must not sit over the button it describes.
+            var middle = apply.TranslatePoint(new Point(apply.Bounds.Width / 2, apply.Bounds.Height / 2), window) ?? default;
+            window.MouseMove(middle); await Settle(900);
+            var under = window.InputHitTest(middle) as Visual;
+            report.Add("Hover: tooltip open " + ToolTip.GetIsOpen(apply) + ", under pointer " + under?.GetType().Name);
+            Assert(under == apply || apply.IsVisualAncestorOf(under), "a hovered button's tooltip leaves the button clickable");
             for (int i = 0; i < 3; i++)
             {
-                SelectAt(list, i); await Settle(100);
+                int index = Enumerable.Range(0, list.AlbumCount).First(n => list.AlbumAt(n).Title == names[i]);
+                SelectAt(list, index); await Settle(100);
                 string track = Path.Combine(root, names[i], "one.mp3");
                 bool HasArt() { using (var f = TagLib.File.Create(track)) return f.Tag.Pictures.Length > 0; }
                 int attempts = 0; bool done = false;
@@ -804,14 +811,13 @@ internal static partial class Tests
                     int raised = await PointerClick(window, apply);
                     var clock = Stopwatch.StartNew();
                     while (!done && clock.ElapsedMilliseconds < 4000) { await Settle(50); done = window.QueuedCount == 0 && HasArt(); }
-                    var at = apply.TranslatePoint(new Point(apply.Bounds.Width / 2, apply.Bounds.Height / 2), window) ?? default;
-                    var hit = window.InputHitTest(at) as Visual;
-                    report.Add("Albums apply " + i + ": click " + attempts + " (" + before + ") raised " + raised + ", applied " + done + ", app saw '" + window.LastApply + "', selected '" + list.SelectedAlbum?.Title +
-                        "', under pointer " + hit?.GetType().Name + " in button " + (hit != null && (hit == apply || apply.IsVisualAncestorOf(hit))) + ", tooltip open " + ToolTip.GetIsOpen(apply) + ", pressed " + apply.IsPressed);
+                    report.Add("Albums apply " + names[i] + ": click " + attempts + " (" + before + ") raised " + raised + ", applied " + done + ", app saw '" + window.LastApply + "', selected '" + list.SelectedAlbum?.Title + "'");
                     window.LastApply = null;
                 }
                 await Until(() => window.QueuedCount == 0, "the cover job finishes", 20000); await Settle(50);
-                Assert(attempts == 1, "one real click applies the cover (album " + i + ", took " + attempts + ")");
+                Assert(attempts == 1, "one real click applies the cover (" + names[i] + ", took " + attempts + ")");
+                Assert(list.SelectedAlbum?.Title == names[i], "the album stays selected after its cover is applied (" + names[i] + ", now " + list.SelectedAlbum?.Title + ")");
+                Assert(apply.Text().StartsWith("Cover applied") && apply.Classes.Contains("done"), "the button confirms the cover was applied (" + apply.Text() + ")");
             }
             // Organize: preview with a real click, then apply with a real click.
             window.Navigate(MainWindow.Page.Organize); await Settle(200);
