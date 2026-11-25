@@ -139,7 +139,10 @@ internal static partial class Tests
             Shot(window, "album-art-tool.png");
             await ThemeGui(window);
             await window.ApplyAsync(); await window.QueueCompletion;
-            Assert(list.AlbumCount == 1, "completed album disappears from the missing tab");
+            Assert(list.AlbumCount == 2 && list.SelectedAlbum?.MissingCount == 0, "the album just completed stays selected, so its confirmation stays in view");
+            Assert(window.CoverageText.StartsWith("Cover applied"), "the album says its cover was applied");
+            Click(ButtonStarting(window, "Missing art")); await Settle(100);
+            Assert(list.AlbumCount == 1, "completed album leaves the missing tab once the list is refreshed");
             Click(ButtonStarting(window, "Has art"));
             Assert(list.AlbumCount == 2, "completed album appears in the existing tab");
             await OnlineGui(window, list);

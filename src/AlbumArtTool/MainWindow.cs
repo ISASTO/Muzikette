@@ -575,6 +575,7 @@ namespace AlbumArtTool
         }
 
         internal string LastApply;
+        internal string CoverageText => coverage.Text;
 
         internal Task ApplyAsync()
         {
