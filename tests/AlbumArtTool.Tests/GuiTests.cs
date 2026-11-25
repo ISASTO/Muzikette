@@ -793,13 +793,17 @@ internal static partial class Tests
             for (int i = 0; i < 3; i++)
             {
                 SelectAt(list, i); await Settle(100);
-                int attempts = 0;
-                while (window.QueuedCount == 0 && !apply.Text().StartsWith("Cover queued") && attempts < 5)
+                string track = Path.Combine(root, names[i], "one.mp3");
+                bool HasArt() { using (var f = TagLib.File.Create(track)) return f.Tag.Pictures.Length > 0; }
+                int attempts = 0; bool done = false;
+                while (!done && attempts < 5)
                 {
                     attempts++;
+                    string before = "enabled " + apply.IsEnabled + " '" + apply.Text() + "' block " + (window.ApplyBlock ?? "none");
                     int raised = await PointerClick(window, apply);
-                    report.Add("Albums apply " + i + ": click " + attempts + " raised " + raised + ", enabled " + apply.IsEnabled + ", queued " + window.QueuedCount);
-                    if (window.QueuedCount > 0) break;
+                    var clock = Stopwatch.StartNew();
+                    while (!done && clock.ElapsedMilliseconds < 4000) { await Settle(50); done = window.QueuedCount == 0 && HasArt(); }
+                    report.Add("Albums apply " + i + ": click " + attempts + " (" + before + ") raised " + raised + ", applied " + done);
                 }
                 await Until(() => window.QueuedCount == 0, "the cover job finishes", 20000); await Settle(50);
                 Assert(attempts == 1, "one real click applies the cover (album " + i + ", took " + attempts + ")");
@@ -820,10 +824,11 @@ internal static partial class Tests
             while (!started && tries < 5)
             {
                 tries++;
+                string before = "enabled " + applyChanges.IsEnabled + " block " + (form.Blocked?.Invoke() ?? "none");
                 int raised = await PointerClick(window, applyChanges);
                 await Settle(100);
                 started = form.IsWorking || form.CurrentPlan == null;
-                report.Add("Organize apply: click " + tries + " raised " + raised + ", working " + form.IsWorking + ", plan " + (form.CurrentPlan != null));
+                report.Add("Organize apply: click " + tries + " (" + before + ") raised " + raised + ", working " + form.IsWorking + ", plan " + (form.CurrentPlan != null));
             }
             await Until(() => !form.IsWorking, "the apply finishes", 30000);
             Console.WriteLine(string.Join("\n", report));
