@@ -143,6 +143,7 @@ namespace AlbumArtTool
             hint.Show(Icons.Organize, "Nothing to review yet", "Choose a preset or the options you want in step 1, then click Preview changes. Every change is listed here before anything happens.");
             hint.Margin = new Thickness(24);
             done.Margin = new Thickness(24); done.IsVisible = false; done.MaxWidth = 460;
+            done.Action.Tip("List what this run changed so you can undo all of it or only some files. Nothing is restored until you confirm.");
             var listHost = new Panel(); listHost.Children.Add(files); listHost.Children.Add(hint); listHost.Children.Add(done);
             var table = Kit.Inset(Kit.Grid("*", "Auto,*").Add(headerBar.Cell(0, 0), listHost.Cell(1, 0))); table.Padding = new Thickness(0);
             reviewView = table;
