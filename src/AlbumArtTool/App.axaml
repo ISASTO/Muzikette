@@ -728,5 +728,11 @@
     <Style Selector="ListBox:disabled ListBoxItem TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
     </Style>
+
+    <!-- Last, so it wins: a tooltip belongs to the control it describes, so styles for text inside lists (above) would
+         otherwise recolor its text too, dark on the dark tooltip in the light appearance. -->
+    <Style Selector="ToolTip TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource TooltipInk}"/>
+    </Style>
   </Application.Styles>
 </Application>

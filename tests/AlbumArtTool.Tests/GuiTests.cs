@@ -860,7 +860,8 @@ internal static partial class Tests
         bool original = Appearance.IsDark;
         var first = new Border { Width = 200, Height = 40, Background = Brushes.Transparent }.Tip("Line one\nLine two");
         var second = new Border { Width = 200, Height = 40, Background = Brushes.Transparent }.Tip("Another tip");
-        var panel = new StackPanel { Children = { first, second } };
+        // Inside the lists that color their text (Health, Organize), as in the app; one list is disabled while work runs.
+        var panel = new StackPanel { Children = { new ListBox { Classes = { "grid" }, ItemsSource = new[] { first } }, new ListBox { Classes = { "grid" }, IsEnabled = false, ItemsSource = new[] { second } } } };
         var window = Host(panel);
         var report = new List<string>();
         try
@@ -891,7 +892,7 @@ internal static partial class Tests
             double darkAgain = await Measure(second, "dark again, reopened");
             Assert(darkFirst >= 4.5 && lightReused >= 4.5 && lightFresh >= 4.5 && darkAgain >= 4.5, "tooltip text stays readable after switching appearance\n" + string.Join("\n", report));
         }
-        finally { Console.WriteLine(string.Join("\n", report)); Appearance.SetDark(original, persist: false); window.Close(); }
+        finally { Appearance.SetDark(original, persist: false); window.Close(); }
     }
 
     // Pages are tested on their own in a plain window.
