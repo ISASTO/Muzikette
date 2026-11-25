@@ -75,7 +75,15 @@ namespace AlbumArtTool.Ui
             // Keys print their labels in capitals; the label itself stays as written, for tests, tooltips and screen readers.
             application.Styles.Add(new Style(x => x.OfType<Button>()) { Setters = { new Setter(ContentControl.ContentTemplateProperty, Caps) } });
             application.Styles.Add(new Style(x => x.OfType<Button>().Class("chip")) { Setters = { new Setter(ContentControl.ContentTemplateProperty, Switch) } });
+            application.Styles.Add(new Style(x => x.OfType<ToolTip>()) { Setters = { new Setter(ContentControl.ContentTemplateProperty, TipText) } });
         }
+
+        /// <summary>Tooltip text, always in the tooltip's own ink.</summary>
+        // A tooltip belongs to the control it describes, so styles for text inside lists ("ListBox.grid TextBlock") match its
+        // text as well and would draw it in the page ink: dark on the dark tooltip in the light appearance. The color is
+        // set on the text itself, which no style overrides, and follows the appearance.
+        internal static readonly IDataTemplate TipText = new FuncDataTemplate<object>((value, scope) =>
+            value as Control ?? new TextBlock { Text = value?.ToString() ?? "" }.Brush(TextBlock.ForegroundProperty, "TooltipInk"), false);
 
         /// <summary>A string label drawn in tracked capitals.</summary>
         // A key whose content is already a control (an icon and label, a sidebar key) shows that control unchanged.
