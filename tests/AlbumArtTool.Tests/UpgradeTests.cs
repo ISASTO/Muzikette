@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AlbumArtTool;
@@ -91,6 +94,7 @@ internal static partial class Tests
             YtDlpSetup.Allowed("https://github.com/denoland/deno/releases/download/v2.5.0/deno-x86_64-pc-windows-msvc.zip") && !YtDlpSetup.Allowed("https://github.com/someone/else/releases/download/x/yt-dlp.exe") &&
             !YtDlpSetup.Allowed("http://github.com/yt-dlp/yt-dlp/releases/download/x/yt-dlp.exe"), "bot checks are explained and tool downloads only come from the official releases");
 
+        QuietYtDlpUpdate();
         AudioOnlyTests();
         ReplacementRun();
     }
@@ -324,6 +328,49 @@ internal static partial class Tests
     }
 
     // Live: download yt-dlp and Deno from GitHub, verify checksums and that both start (Windows CI only).
+    // Each launch quietly updates the yt-dlp this app installed: against a fake GitHub, so it runs offline.
+    private static void QuietYtDlpUpdate()
+    {
+        string cache = YtDlp.Cache, program = Path.Combine(cache, YtDlp.ExecutableName);
+        int requests = 0;
+        string Release(string tag, string body) => "{\"tag_name\":\"" + tag + "\",\"assets\":[{\"name\":\"" + YtDlpSetup.YtDlpAsset + "\",\"size\":" + Encoding.UTF8.GetByteCount(body) +
+            ",\"digest\":\"sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(body))).ToLowerInvariant() +
+            "\",\"browser_download_url\":\"https://github.com/yt-dlp/yt-dlp/releases/download/" + tag + "/" + YtDlpSetup.YtDlpAsset + "\"}]}";
+        HttpMessageHandler GitHub(string tag, string body = "", HttpStatusCode status = HttpStatusCode.OK, bool offline = false) => new FakeHandler(request =>
+        {
+            requests++;
+            if (offline) throw new HttpRequestException("No connection");
+            if (status != HttpStatusCode.OK) return new HttpResponseMessage(status);
+            string reply = request.RequestUri.AbsoluteUri == YtDlpSetup.YtDlpApi ? Release(tag, body) : body;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(reply) };
+        });
+        string Quiet(HttpMessageHandler handler) => YtDlpSetup.UpdateQuietlyAsync(handler).GetAwaiter().GetResult();
+        try
+        {
+            if (Directory.Exists(cache)) Directory.Delete(cache, true);
+            Assert(Quiet(GitHub("2026.11.20")) == null && requests == 0, "nothing is checked when yt-dlp was not installed by the app (a copy on PATH is the person's own)");
+
+            Directory.CreateDirectory(cache);
+            File.WriteAllText(program, "old"); File.WriteAllText(Path.Combine(cache, YtDlp.DenoName), "deno"); File.WriteAllText(YtDlpSetup.VersionFile, "2026.11.01");
+            Assert(Quiet(GitHub("2026.11.01")) == null && requests == 1 && File.ReadAllText(program) == "old", "a current yt-dlp costs one quick check and is left alone");
+            Assert(Quiet(GitHub("2026.11.20", offline: true)) == null && Quiet(GitHub("2026.11.20", status: HttpStatusCode.ServiceUnavailable)) == null &&
+                File.ReadAllText(program) == "old" && YtDlpSetup.InstalledTag == "2026.11.01", "offline or a busy GitHub changes nothing and shows nothing");
+            requests = 0; YtDlpSetup.UpdateInBackground(GitHub("2026.11.01"));
+            Assert(YtDlpSetup.Updating.GetAwaiter().GetResult() == null && requests == 1, "the launch check runs in the background and downloads wait on it");
+
+            // A newer release replaces the app's copy (a stand-in script, since a real yt-dlp is not needed to test the swap).
+            if (!OperatingSystem.IsWindows() && YtDlpSetup.Supported)
+            {
+                string script = "#!/bin/sh\necho 2026.11.20\n";
+                Assert(Quiet(GitHub("2026.11.20", script)) == "2026.11.20" && File.ReadAllText(program) == script && YtDlpSetup.InstalledTag == "2026.11.20",
+                    "a newer yt-dlp is downloaded, checked against GitHub's SHA-256 and swapped in");
+                Assert(Quiet(GitHub("2026.11.21", "#!/bin/sh\necho 1999.01.01\n")) == null && File.ReadAllText(program) == script && YtDlpSetup.InstalledTag == "2026.11.20",
+                    "a download that does not run as the expected version never replaces the working copy");
+            }
+        }
+        finally { try { Directory.Delete(cache, true); } catch { } }
+    }
+
     private static async Task<int> LiveYtDlpSetup()
     {
         using (var setup = new YtDlpSetup())
