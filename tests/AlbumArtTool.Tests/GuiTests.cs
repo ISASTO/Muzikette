@@ -52,6 +52,7 @@ internal static partial class Tests
                 await Gui("add music", AddMusicGui);
                 await Gui("artist tags", ArtistTagsGui);
                 await Gui("click while busy", ClickWhileBusyGui);
+                await Gui("real pointer clicks", RealClickGui);
                 await Gui("zoom and window keys", ZoomGui);
                 return 0;
             }, CancellationToken.None).GetAwaiter().GetResult();
@@ -756,6 +757,79 @@ internal static partial class Tests
             Assert(!form.IsWorking && form.CurrentPlan != null, "Stop cancels the wait and keeps the preview");
         }
         finally { host.Close(); }
+    }
+
+    // Presses and releases the mouse over a button the way a person does (move, press, release), through the window's
+    // real input path: hit testing, pointer capture and the button's own click logic. Returns how many clicks it raised.
+    private static async Task<int> PointerClick(Window window, Button button, int holdMilliseconds = 60)
+    {
+        int clicks = 0; EventHandler<RoutedEventArgs> counted = (s, e) => clicks++;
+        button.Click += counted;
+        try
+        {
+            var center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window) ?? default;
+            window.MouseMove(center); await Settle(40);
+            window.MouseDown(center, MouseButton.Left); await Settle(holdMilliseconds);
+            window.MouseUp(center, MouseButton.Left); await Settle(40);
+        }
+        finally { button.Click -= counted; }
+        return clicks;
+    }
+
+    private static async Task RealClickGui()
+    {
+        var report = new List<string>();
+        // Albums: apply a folder cover, then straight after the refresh apply another.
+        string root = NewFolder("real-clicks");
+        string[] names = { "A First", "B Second", "C Third" };
+        foreach (string name in names) { string path = Path.Combine(root, name); Directory.CreateDirectory(path); CopyTrack(path, "one.mp3", name); File.WriteAllBytes(Path.Combine(path, "cover.jpg"), Cover); }
+        var window = new MainWindow(root, false, new GatedCoverSearch());
+        window.Show();
+        try
+        {
+            await window.ScanAsync(); await Settle(200);
+            var list = window.Albums;
+            var apply = ButtonStarting(window, "Apply cover");
+            for (int i = 0; i < 3; i++)
+            {
+                SelectAt(list, i); await Settle(100);
+                int attempts = 0;
+                while (window.QueuedCount == 0 && !apply.Text().StartsWith("Cover queued") && attempts < 5)
+                {
+                    attempts++;
+                    int raised = await PointerClick(window, apply);
+                    report.Add("Albums apply " + i + ": click " + attempts + " raised " + raised + ", enabled " + apply.IsEnabled + ", queued " + window.QueuedCount);
+                    if (window.QueuedCount > 0) break;
+                }
+                await Until(() => window.QueuedCount == 0, "the cover job finishes", 20000); await Settle(50);
+                Assert(attempts == 1, "one real click applies the cover (album " + i + ", took " + attempts + ")");
+            }
+            // Organize: preview with a real click, then apply with a real click.
+            window.Navigate(MainWindow.Page.Organize); await Settle(200);
+            var form = Controls(window).OfType<OrganizePage>().Single();
+            foreach (var box in Controls(form.OptionsPanel).OfType<CheckBox>()) box.IsChecked = false;
+            BackupSettings.Root = NewFolder("real-clicks-backups");
+            Named<CheckBox>(form, "Fill missing album artists from the artist").IsChecked = true;
+            Named<CheckBox>(form, "Standardize MP3 tags to ID3v2.3").IsChecked = true;
+            await Settle(50);
+            int previewClicks = await PointerClick(window, ButtonStarting(form, "Preview changes"));
+            await Until(() => !form.IsWorking && form.CurrentPlan != null, "the preview finishes", 20000); await Settle(100);
+            var applyChanges = ButtonStarting(form, "Apply selected changes");
+            report.Add("Organize preview raised " + previewClicks + "; apply enabled " + applyChanges.IsEnabled);
+            int tries = 0; bool started = false;
+            while (!started && tries < 5)
+            {
+                tries++;
+                int raised = await PointerClick(window, applyChanges);
+                await Settle(100);
+                started = form.IsWorking || form.CurrentPlan == null;
+                report.Add("Organize apply: click " + tries + " raised " + raised + ", working " + form.IsWorking + ", plan " + (form.CurrentPlan != null));
+            }
+            await Until(() => !form.IsWorking, "the apply finishes", 30000);
+            Console.WriteLine(string.Join("\n", report));
+            Assert(previewClicks == 1 && tries == 1, "one real click previews and one applies in Organize (apply took " + tries + ")");
+        }
+        finally { Console.WriteLine(string.Join("\n", report)); window.Close(); }
     }
 
     // Pages are tested on their own in a plain window.
