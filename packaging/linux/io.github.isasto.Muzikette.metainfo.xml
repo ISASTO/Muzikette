@@ -66,6 +66,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="4.5.0" date="2026-11-25">
+      <description>
+        <p>yt-dlp now updates itself: each time Muzikette opens, it quietly checks for a newer version and installs it in the background.</p>
+      </description>
+    </release>
     <release version="4.4.2" date="2026-11-25">
       <description>
         <p>Tooltips on Health and Organize lists are readable again in the light appearance.</p>
