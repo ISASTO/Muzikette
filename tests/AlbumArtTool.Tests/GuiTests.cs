@@ -403,7 +403,10 @@ internal static partial class Tests
             name.Text = "An edit after enqueueing";
             service.Release.TrySetResult(true); await Task.WhenAll(artwork, artist); await window.QueueCompletion;
             Assert(ScanAlbum(target).Tracks.All(t => ArtistRules.Single(t.Performers, "BENEE")), "queued artist job keeps the captured name and album");
-            Assert(list.AlbumCount == 1, "completed cleanup disappears from the eligible-album filter");
+            Assert(list.AlbumCount == 2 && list.SelectedAlbum?.Folder == target, "the album just cleaned up stays selected, so its confirmation stays in view");
+            var finder = Named<TextBox>(window, "Search albums, artists or folders");
+            finder.Text = "BENEE"; await Settle(300); finder.Text = ""; await Settle(300);
+            Assert(list.AlbumCount == 1, "completed cleanup leaves the eligible-album filter once the list is refreshed");
             Click(Named<Button>(window, "Undo last change"));
             await Until(() => list.AlbumCount == 2, "Undo returns the album to the cleanup filter");
             Assert(ScanAlbum(target).ArtistChangeCount == 1, "Undo restores guest credits");
