@@ -848,7 +848,6 @@ internal static partial class Tests
                 report.Add("Organize apply: click " + tries + " (" + before + ") raised " + raised + ", working " + form.IsWorking + ", plan " + (form.CurrentPlan != null));
             }
             await Until(() => !form.IsWorking, "the apply finishes", 30000);
-            Console.WriteLine(string.Join("\n", report));
             Assert(previewClicks == 1 && tries == 1, "one real click previews and one applies in Organize (apply took " + tries + ")");
         }
         finally { Console.WriteLine(string.Join("\n", report)); window.Close(); }
