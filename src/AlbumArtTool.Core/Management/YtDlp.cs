@@ -165,6 +165,40 @@ namespace AlbumArtTool.Management
         internal static bool Installed => File.Exists(Path.Combine(YtDlp.Cache, YtDlp.ExecutableName)) && File.Exists(Path.Combine(YtDlp.Cache, YtDlp.DenoName));
         internal static string InstalledTag { get { try { return File.ReadAllText(VersionFile).Trim(); } catch { return ""; } } }
 
+        /// <summary>The quiet update started when the app opens (its result is the new tag, or null). Everything that runs yt-dlp
+        /// or installs it waits for this first, so the program is never replaced in the middle of a download.</summary>
+        internal static Task<string> Updating { get; private set; } = Task.FromResult<string>(null);
+
+        /// <summary>Starts a quiet check for a newer yt-dlp in the background, when this app installed the copy it uses.</summary>
+        internal static void UpdateInBackground(HttpMessageHandler handler = null)
+        {
+            if (!Installed || !Supported || !Updating.IsCompleted) return;
+            Updating = Task.Run(() => UpdateQuietlyAsync(handler));
+        }
+
+        /// <summary>Installs the latest yt-dlp over this app's copy when GitHub has a newer release. Returns the new tag, or null when the
+        /// copy is current or anything gets in the way (offline, GitHub busy, yt-dlp running): nothing is shown, and the next launch tries again.
+        /// A copy the person installed themselves (on PATH, or through ALBUMART_YTDLP) is theirs to update and is never touched.</summary>
+        internal static async Task<string> UpdateQuietlyAsync(HttpMessageHandler handler = null, CancellationToken token = default)
+        {
+            if (!Installed || !Supported) return null;
+            using (var limit = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                limit.CancelAfter(TimeSpan.FromMinutes(3));
+                try
+                {
+                    using (var setup = new YtDlpSetup(handler))
+                    {
+                        string latest = await setup.LatestTagAsync(limit.Token).ConfigureAwait(false);
+                        if (latest.Length == 0 || latest == InstalledTag) return null;
+                        await setup.InstallAsync(false, null, limit.Token).ConfigureAwait(false);
+                        return latest;
+                    }
+                }
+                catch (Exception) { return null; }
+            }
+        }
+
         /// <summary>The latest yt-dlp release tag, e.g. "2026.10.26".</summary>
         internal async Task<string> LatestTagAsync(CancellationToken token)
         {

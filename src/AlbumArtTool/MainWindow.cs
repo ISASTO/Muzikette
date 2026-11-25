@@ -162,6 +162,8 @@ namespace AlbumArtTool
             Closed += (s, e) => Shutdown();
             // Once per launch the name scrolls across the display before the readouts light up (click to skip).
             Opened += (s, e) => display.Boot("Muzikette");
+            // YouTube changes often and old yt-dlp versions stop working, so each launch quietly installs a newer one if there is one.
+            Opened += (s, e) => Management.YtDlpSetup.UpdateInBackground();
             AddHandler(KeyDownEvent, OnKey, RoutingStrategies.Tunnel);
             AddHandler(PointerPressedEvent, (s, e) => lastModifiers = e.KeyModifiers, RoutingStrategies.Tunnel);
             AddHandler(KeyUpEvent, (s, e) => lastModifiers = e.KeyModifiers, RoutingStrategies.Tunnel);

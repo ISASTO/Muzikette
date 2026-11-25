@@ -60,7 +60,6 @@ namespace AlbumArtTool
         private CancellationTokenSource running;
         private LibraryJournal lastJournal;
         private AlbumState shown;
-        private Task toolUpdate = Task.CompletedTask;
 
         private readonly ListBox albumList = new ListBox { Classes = { "albums" } };
         private readonly ItemsControl candidateList = new ItemsControl();
@@ -197,7 +196,6 @@ namespace AlbumArtTool
             started = true;
             if (states.Count > 0) albumList.SelectedIndex = 0;
             Searching = SearchAllAsync(closing.Token);
-            toolUpdate = UpdateYtDlpAsync(closing.Token);
         }
 
         /// <summary>Stops searches when the page is closed. Refused (false) while songs are being replaced.</summary>
@@ -241,6 +239,7 @@ namespace AlbumArtTool
                 }
                 if (updateOnly || Downloader == null || YtDlp.FindDeno(Downloader) == null)
                 {
+                    await YtDlpSetup.Updating;
                     status.Text = "Downloading yt-dlp" + (updateOnly ? "" : " and Deno") + "…";
                     using (var setupYtDlp = new YtDlpSetup()) await setupYtDlp.InstallAsync(!updateOnly && (Downloader == null || YtDlp.FindDeno(Downloader) == null), Percent("Downloading yt-dlp and Deno"), token);
                 }
@@ -250,24 +249,6 @@ namespace AlbumArtTool
             catch (Exception e) when (e is IOException || e is System.Net.Http.HttpRequestException || e is UnauthorizedAccessException || e is InvalidDataException || e is System.ComponentModel.Win32Exception)
             { status.Text = "Setup could not finish: " + e.Message; }
             finally { SetWorking(false); UpdateTools(); }
-        }
-
-        // Keeps the copy of yt-dlp this app installed current: YouTube changes often, and old versions stop working.
-        private async Task UpdateYtDlpAsync(CancellationToken token)
-        {
-            if (download != null || !YtDlpSetup.Installed || !YtDlpSetup.Supported) return;
-            string stamp = Path.Combine(YtDlp.Cache, "CHECKED.txt");
-            try { if (File.Exists(stamp) && DateTime.UtcNow - File.GetLastWriteTimeUtc(stamp) < TimeSpan.FromHours(20)) return; } catch { }
-            try
-            {
-                using (var setupYtDlp = new YtDlpSetup())
-                {
-                    string latest = await setupYtDlp.LatestTagAsync(token);
-                    if (latest.Length > 0 && latest != YtDlpSetup.InstalledTag) await setupYtDlp.InstallAsync(false, null, token);
-                }
-                File.WriteAllText(stamp, DateTime.UtcNow.ToString("o"));
-            }
-            catch (Exception e) when (e is IOException || e is System.Net.Http.HttpRequestException || e is UnauthorizedAccessException || e is InvalidDataException || e is OperationCanceledException) { }
         }
 
         private async Task ChooseCookiesAsync()
@@ -544,7 +525,7 @@ namespace AlbumArtTool
             var chosen = which.ToList();
             var pairs = chosen.SelectMany(s => s.Pairs).Where(p => p.Selected && p.CanReplace).ToList();
             if (pairs.Count == 0) return;
-            await toolUpdate;
+            await YtDlpSetup.Updating;
             var options = new LibraryOptions { Root = root, BackupRoot = BackupSettings.Root, EncoderPath = Ffmpeg, DownloaderPath = Downloader, Download = download };
             SetWorking(true); exclusive(true);
             bool wrote = false;
