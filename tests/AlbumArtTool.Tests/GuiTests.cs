@@ -15,6 +15,7 @@ using Avalonia.Media;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AlbumArtTool;
 using AlbumArtTool.Core;
 using AlbumArtTool.Management;
@@ -803,7 +804,11 @@ internal static partial class Tests
                     int raised = await PointerClick(window, apply);
                     var clock = Stopwatch.StartNew();
                     while (!done && clock.ElapsedMilliseconds < 4000) { await Settle(50); done = window.QueuedCount == 0 && HasArt(); }
-                    report.Add("Albums apply " + i + ": click " + attempts + " (" + before + ") raised " + raised + ", applied " + done);
+                    var at = apply.TranslatePoint(new Point(apply.Bounds.Width / 2, apply.Bounds.Height / 2), window) ?? default;
+                    var hit = window.InputHitTest(at) as Visual;
+                    report.Add("Albums apply " + i + ": click " + attempts + " (" + before + ") raised " + raised + ", applied " + done + ", app saw '" + window.LastApply + "', selected '" + list.SelectedAlbum?.Title +
+                        "', under pointer " + hit?.GetType().Name + " in button " + (hit != null && (hit == apply || apply.IsVisualAncestorOf(hit))) + ", tooltip open " + ToolTip.GetIsOpen(apply) + ", pressed " + apply.IsPressed);
+                    window.LastApply = null;
                 }
                 await Until(() => window.QueuedCount == 0, "the cover job finishes", 20000); await Settle(50);
                 Assert(attempts == 1, "one real click applies the cover (album " + i + ", took " + attempts + ")");
