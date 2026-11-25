@@ -868,8 +868,8 @@ internal static partial class Tests
             async Task<double> Measure(Control owner, string label)
             {
                 ToolTip.SetIsOpen(owner, true); await Settle(150);
-                var tip = window.GetVisualDescendants().OfType<ToolTip>().FirstOrDefault()
-                    ?? typeof(ToolTip).GetField("ToolTipProperty", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?.GetValue(null) is AvaloniaProperty property ? owner.GetValue(property) as ToolTip : null;
+                var hidden = typeof(ToolTip).GetField("ToolTipProperty", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?.GetValue(null) as AvaloniaProperty;
+                var tip = window.GetVisualDescendants().OfType<ToolTip>().FirstOrDefault() ?? (hidden != null ? owner.GetValue(hidden) as ToolTip : null);
                 var text = tip?.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault();
                 var presenter = tip?.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>().FirstOrDefault();
                 var border = tip?.GetVisualDescendants().OfType<Border>().FirstOrDefault();
