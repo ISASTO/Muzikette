@@ -7,6 +7,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Threading;
 using AlbumArtTool.Core;
 using AlbumArtTool.Ui;
 
@@ -101,6 +102,13 @@ namespace AlbumArtTool
                     }
                     issues.AddRange(result.Issues);
                     if (result.Entries.Count > 0) { lastEdit = result; lastEditedFolder = job.Album.Folder; }
+                    // Remembered so the album shows what just happened to it, and the button confirms it.
+                    if (result.Issues.Count == 0 && result.TracksWritten > 0)
+                    {
+                        string what = (job.Artist != null ? "Artists set on " : "Cover applied to ") + result.TracksWritten + (result.TracksWritten == 1 ? " track" : " tracks");
+                        applied[job.Album.Key] = (what, job.Artist != null, DateTime.UtcNow);
+                        lastDone = what + " · " + job.Album.Title;
+                    }
                     if (job.Artist == null && albums.SelectedAlbum?.Key == job.Album.Key) pending = null;
                     // Refresh only this folder, preserving whatever the user is preparing elsewhere.
                     await RefreshFolderAsync(job.Album.Folder, null, preserveStaged: true);
@@ -123,9 +131,28 @@ namespace AlbumArtTool
             }
             queueRunning = false;
             progress.IsVisible = progressPercent.IsVisible = false;
-            status.Text = "Queue finished · " + jobsFinished + " albums processed" +
-                (jobsWithIssues > 0 ? " · " + jobsWithIssues + " need attention (see Issues)." : " · Backups saved. Undo is available.");
+            status.Text = jobsFinished == 1 && jobsWithIssues == 0 && lastDone != null ? lastDone + ". Backups saved; Undo is available." :
+                "Done · " + jobsFinished + " albums updated" + (jobsWithIssues > 0 ? " · " + jobsWithIssues + " need attention (see Issues)." : " · Backups saved; Undo is available.");
+            ShowDone();
             Guard(UpdateQueueControls);
+        }
+
+        // What the queue did to each album (shown on its details and its button), and the last result for the display.
+        private readonly Dictionary<string, (string Message, bool Artist, DateTime At)> applied = new Dictionary<string, (string, bool, DateTime)>();
+        private string lastDone;
+        private DateTime doneUntil;
+        internal const int ConfirmMs = 2600;
+
+        /// <summary>Whether a confirmation for this album (cover or artists) is still showing on its button.</summary>
+        private bool JustApplied(Album album, bool artist) =>
+            album != null && applied.TryGetValue(album.Key, out var done) && done.Artist == artist && (DateTime.UtcNow - done.At).TotalMilliseconds < ConfirmMs;
+
+        /// <summary>The display shows "Done" with the result for a few seconds, then the buttons return to normal.</summary>
+        private void ShowDone()
+        {
+            doneUntil = DateTime.UtcNow.AddMilliseconds(ConfirmMs);
+            Guard(UpdateStatusBar);
+            DispatcherTimer.RunOnce(() => Guard(UpdateQueueControls), TimeSpan.FromMilliseconds(ConfirmMs + 50));
         }
 
         /// <summary>The last error from refreshing the window after queued work (tests check it stays empty).</summary>

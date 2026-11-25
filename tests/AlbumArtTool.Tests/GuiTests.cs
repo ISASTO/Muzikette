@@ -15,6 +15,7 @@ using Avalonia.Media;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AlbumArtTool;
 using AlbumArtTool.Core;
 using AlbumArtTool.Management;
@@ -52,6 +53,7 @@ internal static partial class Tests
                 await Gui("add music", AddMusicGui);
                 await Gui("artist tags", ArtistTagsGui);
                 await Gui("click while busy", ClickWhileBusyGui);
+                await Gui("real pointer clicks", RealClickGui);
                 await Gui("zoom and window keys", ZoomGui);
                 return 0;
             }, CancellationToken.None).GetAwaiter().GetResult();
@@ -137,7 +139,10 @@ internal static partial class Tests
             Shot(window, "album-art-tool.png");
             await ThemeGui(window);
             await window.ApplyAsync(); await window.QueueCompletion;
-            Assert(list.AlbumCount == 1, "completed album disappears from the missing tab");
+            Assert(list.AlbumCount == 2 && list.SelectedAlbum?.MissingCount == 0, "the album just completed stays selected, so its confirmation stays in view");
+            Assert(window.CoverageText.StartsWith("Cover applied"), "the album says its cover was applied");
+            Click(ButtonStarting(window, "Missing art")); await Settle(100);
+            Assert(list.AlbumCount == 1, "completed album leaves the missing tab once the list is refreshed");
             Click(ButtonStarting(window, "Has art"));
             Assert(list.AlbumCount == 2, "completed album appears in the existing tab");
             await OnlineGui(window, list);
@@ -398,7 +403,10 @@ internal static partial class Tests
             name.Text = "An edit after enqueueing";
             service.Release.TrySetResult(true); await Task.WhenAll(artwork, artist); await window.QueueCompletion;
             Assert(ScanAlbum(target).Tracks.All(t => ArtistRules.Single(t.Performers, "BENEE")), "queued artist job keeps the captured name and album");
-            Assert(list.AlbumCount == 1, "completed cleanup disappears from the eligible-album filter");
+            Assert(list.AlbumCount == 2 && list.SelectedAlbum?.Folder == target, "the album just cleaned up stays selected, so its confirmation stays in view");
+            var finder = Named<TextBox>(window, "Search albums, artists or folders");
+            finder.Text = "BENEE"; await Settle(300); finder.Text = ""; await Settle(300);
+            Assert(list.AlbumCount == 1, "completed cleanup leaves the eligible-album filter once the list is refreshed");
             Click(Named<Button>(window, "Undo last change"));
             await Until(() => list.AlbumCount == 2, "Undo returns the album to the cleanup filter");
             Assert(ScanAlbum(target).ArtistChangeCount == 1, "Undo restores guest credits");
@@ -756,6 +764,93 @@ internal static partial class Tests
             Assert(!form.IsWorking && form.CurrentPlan != null, "Stop cancels the wait and keeps the preview");
         }
         finally { host.Close(); }
+    }
+
+    // Presses and releases the mouse over a button the way a person does (move, press, release), through the window's
+    // real input path: hit testing, pointer capture and the button's own click logic. Returns how many clicks it raised.
+    private static async Task<int> PointerClick(Window window, Button button, int holdMilliseconds = 60)
+    {
+        int clicks = 0; EventHandler<RoutedEventArgs> counted = (s, e) => clicks++;
+        button.Click += counted;
+        try
+        {
+            var center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window) ?? default;
+            window.MouseMove(center); await Settle(40);
+            window.MouseDown(center, MouseButton.Left); await Settle(holdMilliseconds);
+            window.MouseUp(center, MouseButton.Left); await Settle(40);
+        }
+        finally { button.Click -= counted; }
+        return clicks;
+    }
+
+    private static async Task RealClickGui()
+    {
+        var report = new List<string>();
+        // Albums: apply a folder cover, then straight after the refresh apply another.
+        string root = NewFolder("real-clicks");
+        string[] names = { "A First", "B Second", "C Third" };
+        foreach (string name in names) { string path = Path.Combine(root, name); Directory.CreateDirectory(path); CopyTrack(path, "one.mp3", name); File.WriteAllBytes(Path.Combine(path, "cover.jpg"), Cover); }
+        var window = new MainWindow(root, false, new GatedCoverSearch());
+        window.Show();
+        try
+        {
+            await window.ScanAsync(); await Settle(200);
+            var list = window.Albums;
+            var apply = ButtonStarting(window, "Apply cover");
+            // A tooltip opened by hovering must not sit over the button it describes.
+            var middle = apply.TranslatePoint(new Point(apply.Bounds.Width / 2, apply.Bounds.Height / 2), window) ?? default;
+            window.MouseMove(middle); await Settle(900);
+            var under = window.InputHitTest(middle) as Visual;
+            report.Add("Hover: tooltip open " + ToolTip.GetIsOpen(apply) + ", under pointer " + under?.GetType().Name);
+            Assert(under == apply || apply.IsVisualAncestorOf(under), "a hovered button's tooltip leaves the button clickable");
+            for (int i = 0; i < 3; i++)
+            {
+                int index = Enumerable.Range(0, list.AlbumCount).First(n => list.AlbumAt(n).Title == names[i]);
+                SelectAt(list, index); await Settle(100);
+                string track = Path.Combine(root, names[i], "one.mp3");
+                bool HasArt() { using (var f = TagLib.File.Create(track)) return f.Tag.Pictures.Length > 0; }
+                int attempts = 0; bool done = false;
+                while (!done && attempts < 5)
+                {
+                    attempts++;
+                    string before = "enabled " + apply.IsEnabled + " '" + apply.Text() + "' block " + (window.ApplyBlock ?? "none");
+                    int raised = await PointerClick(window, apply);
+                    var clock = Stopwatch.StartNew();
+                    while (!done && clock.ElapsedMilliseconds < 4000) { await Settle(50); done = window.QueuedCount == 0 && HasArt(); }
+                    report.Add("Albums apply " + names[i] + ": click " + attempts + " (" + before + ") raised " + raised + ", applied " + done + ", app saw '" + window.LastApply + "', selected '" + list.SelectedAlbum?.Title + "'");
+                    window.LastApply = null;
+                }
+                await Until(() => window.QueuedCount == 0, "the cover job finishes", 20000); await Settle(50);
+                Assert(attempts == 1, "one real click applies the cover (" + names[i] + ", took " + attempts + ")");
+                Assert(list.SelectedAlbum?.Title == names[i], "the album stays selected after its cover is applied (" + names[i] + ", now " + list.SelectedAlbum?.Title + ")");
+                Assert(apply.Text().StartsWith("Cover applied") && apply.Classes.Contains("done"), "the button confirms the cover was applied (" + apply.Text() + ")");
+            }
+            // Organize: preview with a real click, then apply with a real click.
+            window.Navigate(MainWindow.Page.Organize); await Settle(200);
+            var form = Controls(window).OfType<OrganizePage>().Single();
+            foreach (var box in Controls(form.OptionsPanel).OfType<CheckBox>()) box.IsChecked = false;
+            BackupSettings.Root = NewFolder("real-clicks-backups");
+            Named<CheckBox>(form, "Fill missing album artists from the artist").IsChecked = true;
+            Named<CheckBox>(form, "Standardize MP3 tags to ID3v2.3").IsChecked = true;
+            await Settle(50);
+            int previewClicks = await PointerClick(window, ButtonStarting(form, "Preview changes"));
+            await Until(() => !form.IsWorking && form.CurrentPlan != null, "the preview finishes", 20000); await Settle(100);
+            var applyChanges = ButtonStarting(form, "Apply selected changes");
+            report.Add("Organize preview raised " + previewClicks + "; apply enabled " + applyChanges.IsEnabled);
+            int tries = 0; bool started = false;
+            while (!started && tries < 5)
+            {
+                tries++;
+                string before = "enabled " + applyChanges.IsEnabled + " block " + (form.Blocked?.Invoke() ?? "none");
+                int raised = await PointerClick(window, applyChanges);
+                await Settle(100);
+                started = form.IsWorking || form.CurrentPlan == null;
+                report.Add("Organize apply: click " + tries + " (" + before + ") raised " + raised + ", working " + form.IsWorking + ", plan " + (form.CurrentPlan != null));
+            }
+            await Until(() => !form.IsWorking, "the apply finishes", 30000);
+            Assert(previewClicks == 1 && tries == 1, "one real click previews and one applies in Organize (apply took " + tries + ")");
+        }
+        finally { Console.WriteLine(string.Join("\n", report)); window.Close(); }
     }
 
     // Pages are tested on their own in a plain window.
